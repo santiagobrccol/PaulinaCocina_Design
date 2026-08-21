@@ -368,7 +368,7 @@ const EBOOKS = [
 
 type AuthScreen = "login" | "create-account";
 
-function LoginScreen({ onLogin, onCreateAccount }: { onLogin: () => void; onCreateAccount: () => void }) {
+function LoginScreen({ onLogin }: { onLogin: () => void }) {
   const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
   const [error, setError]       = useState("");
@@ -426,19 +426,7 @@ function LoginScreen({ onLogin, onCreateAccount }: { onLogin: () => void; onCrea
           Iniciar sesión
         </button>
 
-        <div className="flex items-center gap-3 mb-6">
-          <div className="flex-1 h-px bg-gray-100" />
-          <span className="text-xs text-gray-400">o</span>
-          <div className="flex-1 h-px bg-gray-100" />
-        </div>
-
-        <button onClick={onCreateAccount}
-          className="w-full py-4 rounded-2xl font-bold text-sm border-2 active:scale-[0.98] transition-transform"
-          style={{ borderColor: RED, color: RED, backgroundColor: RED_LIGHT }}>
-          Crear cuenta
-        </button>
-
-        <p className="text-center text-xs text-gray-400 mt-8">
+        <p className="text-center text-xs text-gray-400 mt-6">
           Al continuar aceptás los{" "}
           <span className="font-semibold underline underline-offset-2" style={{ color: RED }}>términos y condiciones</span>.
         </p>
@@ -580,27 +568,35 @@ function BottomNav({ activeTab, onTabChange }: { activeTab: string; onTabChange:
 
 // ─── Recipe Detail Screen ─────────────────────────────────────────────────────
 
-const PORTIONS = [2, 4, 6] as const;
-type Portion = typeof PORTIONS[number];
+const DEFAULT_PORTIONS = 4; // matches "Comensales por defecto" in profile
 
 function fmtQty(qty: number): string {
   return String(Math.round(qty * 10) / 10);
 }
 
-function PortionSelector({ portions, onChange }: { portions: Portion; onChange: (p: Portion) => void }) {
+function PortionSelector({ portions, onChange, accentColor = RED }: {
+  portions: number; onChange: (p: number) => void; accentColor?: string;
+}) {
+  const canDecrease = portions > 1;
+  const canIncrease = portions < 20;
   return (
-    <div className="flex rounded-2xl overflow-hidden border" style={{ borderColor: RED }}>
-      {PORTIONS.map((p, i) => {
-        const selected = p === portions;
-        return (
-          <button key={p} onClick={() => onChange(p)}
-            className="flex-1 py-2.5 flex flex-col items-center gap-0.5 transition-colors"
-            style={{ backgroundColor: selected ? RED : "white", borderRight: i < PORTIONS.length - 1 ? `1px solid ${RED}` : "none" }}>
-            <span className="text-base font-bold" style={{ color: selected ? "white" : RED }}>{p}</span>
-            <span className="text-[9px]" style={{ color: selected ? "rgba(255,255,255,0.75)" : "#9CA3AF" }}>personas</span>
-          </button>
-        );
-      })}
+    <div className="flex items-center justify-between py-1">
+      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Porciones</p>
+      <div className="flex items-center gap-3">
+        <button onClick={() => canDecrease && onChange(portions - 1)}
+          className="w-8 h-8 rounded-full border-2 flex items-center justify-center transition-colors"
+          style={{ borderColor: canDecrease ? accentColor : "#E5E7EB" }}>
+          <span className="text-lg font-bold leading-none" style={{ color: canDecrease ? accentColor : "#D1D5DB" }}>−</span>
+        </button>
+        <span className="text-sm font-bold text-gray-800 tabular-nums" style={{ minWidth: 80, textAlign: "center" }}>
+          {portions} {portions === 1 ? "persona" : "personas"}
+        </span>
+        <button onClick={() => canIncrease && onChange(portions + 1)}
+          className="w-8 h-8 rounded-full flex items-center justify-center text-white transition-colors"
+          style={{ backgroundColor: canIncrease ? accentColor : "#D1D5DB" }}>
+          <span className="text-lg font-bold leading-none">+</span>
+        </button>
+      </div>
     </div>
   );
 }
@@ -639,10 +635,11 @@ function StepList({ steps, accentColor = RED }: { steps: string[]; accentColor?:
   );
 }
 
-function RecipeDetailScreen({ recipe, onBack }: { recipe: Recipe; onBack: () => void }) {
-  const [portions, setPortions]             = useState<Portion>(4);
-  const [garnishPortions, setGarnishPortions] = useState<Portion>(4);
-  const [cartState, setCartState]           = useState<"idle" | "added">("idle");
+function RecipeDetailScreen({ recipe, onBack, isInList, onToggleList, onViewShoppingList }: {
+  recipe: Recipe; onBack: () => void; isInList: boolean; onToggleList: () => void; onViewShoppingList: () => void;
+}) {
+  const [portions, setPortions]               = useState(DEFAULT_PORTIONS);
+  const [garnishPortions, setGarnishPortions] = useState(DEFAULT_PORTIONS);
 
   const scale        = portions / 4;
   const garnishScale = garnishPortions / 4;
@@ -654,27 +651,29 @@ function RecipeDetailScreen({ recipe, onBack }: { recipe: Recipe; onBack: () => 
         <ImageWithFallback src={recipe.image} alt={recipe.name} className="w-full h-full object-cover" />
         <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/10 to-transparent" />
         <div className="absolute top-10 left-4"><BackButton onBack={onBack} /></div>
-        <div className="absolute bottom-4 left-4 right-4">
-          <DietBadge diet={recipe.diet} />
-          <h1 className="text-white text-2xl font-bold leading-tight drop-shadow mt-1.5">{recipe.name}</h1>
+
+        <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <DietBadge diet={recipe.diet} />
+            <h1 className="text-white text-2xl font-bold leading-tight drop-shadow mt-1.5">{recipe.name}</h1>
+          </div>
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full shrink-0"
+            style={{ backgroundColor: "rgba(0,0,0,0.52)" }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="10" stroke="white" strokeWidth="2" />
+              <path d="M12 6v6l4 2" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span className="text-white text-xs font-semibold">{recipe.time}</span>
+          </div>
         </div>
       </div>
 
       {/* Scrollable body */}
       <div className="flex-1 overflow-y-auto bg-white" style={{ scrollbarWidth: "none" }}>
         <div className="px-4 pt-4 pb-32">
-          {/* Time stat only */}
-          <div className="mb-5">
-            <div className="rounded-2xl py-3 px-4 text-center" style={{ backgroundColor: RED_LIGHT }}>
-              <p className="text-[10px] text-gray-500 mb-0.5">Tiempo</p>
-              <p className="font-bold text-sm" style={{ color: RED }}>{recipe.time}</p>
-            </div>
-          </div>
-
-          {/* Portions selector */}
-          <div className="mb-6">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Porciones</p>
-            <PortionSelector portions={portions} onChange={(p) => { setPortions(p); setCartState("idle"); }} />
+          {/* Compact portion selector */}
+          <div className="mb-5 px-1">
+            <PortionSelector portions={portions} onChange={setPortions} />
           </div>
 
           {/* Ingredients */}
@@ -711,21 +710,12 @@ function RecipeDetailScreen({ recipe, onBack }: { recipe: Recipe; onBack: () => 
                   </div>
 
                   {/* Garnish portions selector */}
-                  <div className="mb-4">
-                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Porciones</p>
-                    <div className="flex rounded-2xl overflow-hidden border" style={{ borderColor: ORANGE_TODAY }}>
-                      {PORTIONS.map((p, i) => {
-                        const selected = p === garnishPortions;
-                        return (
-                          <button key={p} onClick={() => setGarnishPortions(p)}
-                            className="flex-1 py-2.5 flex flex-col items-center gap-0.5 transition-colors"
-                            style={{ backgroundColor: selected ? ORANGE_TODAY : "white", borderRight: i < PORTIONS.length - 1 ? `1px solid ${ORANGE_TODAY}` : "none" }}>
-                            <span className="text-base font-bold" style={{ color: selected ? "white" : ORANGE_TODAY }}>{p}</span>
-                            <span className="text-[9px]" style={{ color: selected ? "rgba(255,255,255,0.75)" : "#9CA3AF" }}>personas</span>
-                          </button>
-                        );
-                      })}
-                    </div>
+                  <div className="mb-4 px-1">
+                    <PortionSelector
+                      portions={garnishPortions}
+                      onChange={setGarnishPortions}
+                      accentColor={ORANGE_TODAY}
+                    />
                   </div>
 
                   {/* Garnish ingredients */}
@@ -761,8 +751,8 @@ function RecipeDetailScreen({ recipe, onBack }: { recipe: Recipe; onBack: () => 
       {/* Fixed CTA */}
       <div className="absolute bottom-0 left-0 right-0 px-4 pb-6 pt-3 bg-white"
         style={{ boxShadow: "0 -8px 24px rgba(0,0,0,0.06)" }}>
-        {cartState === "idle" ? (
-          <button onClick={() => setCartState("added")}
+        {!isInList ? (
+          <button onClick={onToggleList}
             className="w-full py-4 rounded-2xl text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
             style={{ backgroundColor: RED }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
@@ -774,11 +764,13 @@ function RecipeDetailScreen({ recipe, onBack }: { recipe: Recipe; onBack: () => 
           </button>
         ) : (
           <div className="flex gap-2">
-            <div className="flex-1 py-4 rounded-2xl flex items-center justify-center gap-2 border-2" style={{ borderColor: "#5BAF7A" }}>
+            <button onClick={onToggleList}
+              className="flex-1 py-4 rounded-2xl flex items-center justify-center gap-2 border-2 active:scale-[0.98] transition-transform"
+              style={{ borderColor: "#5BAF7A" }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke="#5BAF7A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
               <span className="text-sm font-bold" style={{ color: "#5BAF7A" }}>¡Agregado!</span>
-            </div>
-            <button onClick={() => setCartState("idle")} className="px-5 py-4 rounded-2xl text-white text-sm font-bold active:scale-95" style={{ backgroundColor: RED }}>Ver lista</button>
+            </button>
+            <button onClick={onViewShoppingList} className="px-5 py-4 rounded-2xl text-white text-sm font-bold active:scale-95" style={{ backgroundColor: RED }}>Ver lista</button>
           </div>
         )}
       </div>
@@ -858,12 +850,13 @@ function WeekDetailScreen({ week, onBack, onRecipeDetail, onViewShoppingList }: 
 
 // ─── Shopping List — logic helpers ────────────────────────────────────────────
 
-const WEEK_RECIPES = WEEKS[0].days
-  .flatMap((d) => d.recipes)
-  .filter((r, i, arr) => arr.findIndex((x) => x.id === r.id) === i);
+const EXCLUDED_UNITS = new Set(["cda", "cdas", "cdita", "ramita", "ramitas"]);
 
 function measurableIdxs(recipe: Recipe): number[] {
-  return recipe.ingredients.map((ing, i) => ({ ing, i })).filter(({ ing }) => ing.qty > 0).map(({ i }) => i);
+  return recipe.ingredients
+    .map((ing, i) => ({ ing, i }))
+    .filter(({ ing }) => ing.qty > 0 && !EXCLUDED_UNITS.has(ing.unit))
+    .map(({ i }) => i);
 }
 
 type Consolidated = { name: string; entries: { qty: number; unit: string; from: string }[] };
@@ -872,7 +865,7 @@ function buildConsolidated(recipes: Recipe[]): Consolidated[] {
   const map = new Map<string, Consolidated>();
   for (const recipe of recipes) {
     for (const ing of recipe.ingredients) {
-      if (ing.qty === 0) continue;
+      if (ing.qty === 0 || EXCLUDED_UNITS.has(ing.unit)) continue;
       if (!map.has(ing.name)) map.set(ing.name, { name: ing.name, entries: [] });
       map.get(ing.name)!.entries.push({ qty: ing.qty, unit: ing.unit, from: recipe.name });
     }
@@ -888,7 +881,7 @@ function consolidatedLabel(c: Consolidated): string {
 
 // ─── Shopping List Tab ────────────────────────────────────────────────────────
 
-function ShoppingListTab() {
+function ShoppingListTab({ selectedRecipes, onGoToMenu }: { selectedRecipes: Recipe[]; onGoToMenu: () => void }) {
   const ingKey = (recipeId: number, idx: number) => `${recipeId}-${idx}`;
 
   const [doneSet, setDoneSet]           = useState<Set<string>>(new Set());
@@ -896,8 +889,8 @@ function ShoppingListTab() {
   const [summaryOpen, setSummaryOpen]   = useState(false);
   const [summaryDone, setSummaryDone]   = useState<Set<string>>(new Set());
 
-  const consolidated = buildConsolidated(WEEK_RECIPES);
-  const totalItems   = WEEK_RECIPES.reduce((sum, r) => sum + measurableIdxs(r).length, 0);
+  const consolidated = buildConsolidated(selectedRecipes);
+  const totalItems   = selectedRecipes.reduce((sum, r) => sum + measurableIdxs(r).length, 0);
   const doneCount    = doneSet.size;
 
   const toggleIngredient = (recipeId: number, idx: number) => {
@@ -909,7 +902,7 @@ function ShoppingListTab() {
         setExpandedDone((ed) => { const ne = new Set(ed); ne.delete(recipeId); return ne; });
       } else {
         n.add(k);
-        const recipe = WEEK_RECIPES.find((r) => r.id === recipeId)!;
+        const recipe = selectedRecipes.find((r) => r.id === recipeId)!;
         const allNowDone = measurableIdxs(recipe).every((i) => n.has(ingKey(recipeId, i)));
         if (allNowDone) {
           setExpandedDone((ed) => { const ne = new Set(ed); ne.delete(recipeId); return ne; });
@@ -923,11 +916,32 @@ function ShoppingListTab() {
     setExpandedDone((prev) => { const n = new Set(prev); n.has(recipeId) ? n.delete(recipeId) : n.add(recipeId); return n; });
   };
 
+  if (selectedRecipes.length === 0) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center bg-[#FAF6F0] px-8 text-center">
+        <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4" style={{ backgroundColor: RED_LIGHT }}>
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+            <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2" stroke={RED} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            <rect x="9" y="3" width="6" height="4" rx="1" stroke={RED} strokeWidth="2" />
+            <path d="M9 12h6M9 16h4" stroke={RED} strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        </div>
+        <p className="font-bold text-gray-800 mb-1">Tu lista está vacía</p>
+        <p className="text-xs text-gray-400 mb-5">Abrí una receta y tocá "Agregar a lista de compras" para empezar.</p>
+        <button onClick={onGoToMenu}
+          className="px-6 py-3 rounded-2xl text-white text-sm font-bold active:scale-95 transition-transform"
+          style={{ backgroundColor: RED }}>
+          Ir al menú
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 overflow-y-auto bg-[#FAF6F0]" style={{ scrollbarWidth: "none" }}>
       <div className="px-4 pt-4 pb-6">
         <div className="flex items-center justify-between mb-3">
-          <p className="text-xs text-gray-400">Semana del 22 al 27 de junio</p>
+          <p className="text-xs text-gray-400">{selectedRecipes.length} {selectedRecipes.length === 1 ? "receta" : "recetas"} seleccionadas</p>
           {doneCount > 0 && (
             <button onClick={() => { setDoneSet(new Set()); setExpandedDone(new Set()); setSummaryDone(new Set()); }}
               className="text-xs font-semibold px-3 py-1.5 rounded-full" style={{ color: RED, backgroundColor: RED_LIGHT }}>
@@ -985,7 +999,7 @@ function ShoppingListTab() {
         {/* Per-recipe cards */}
         <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Por receta</p>
         <div className="space-y-3">
-          {WEEK_RECIPES.map((recipe) => {
+          {selectedRecipes.map((recipe) => {
             const mIdxs     = measurableIdxs(recipe);
             const recipeDone = mIdxs.filter((i) => doneSet.has(ingKey(recipe.id, i))).length;
             const allDone    = mIdxs.length > 0 && recipeDone === mIdxs.length;
@@ -1022,7 +1036,7 @@ function ShoppingListTab() {
                 {showIngredients && (
                   <div className="divide-y divide-gray-50">
                     {recipe.ingredients.map((ing, i) => {
-                      if (ing.qty === 0) return null;
+                      if (ing.qty === 0 || EXCLUDED_UNITS.has(ing.unit)) return null;
                       const isDone = doneSet.has(ingKey(recipe.id, i));
                       return (
                         <button key={i} onClick={() => toggleIngredient(recipe.id, i)}
@@ -1267,22 +1281,18 @@ function ProfileScreen({ onClose }: { onClose: () => void }) {
           />
         </Section>
 
-        <Section title="Preferencias">
+        <Section title="Menú semanal">
           <Row
             icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" stroke="#6B7FD4" strokeWidth="2" strokeLinecap="round" /><circle cx="9" cy="7" r="4" stroke="#6B7FD4" strokeWidth="2" /><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" stroke="#6B7FD4" strokeWidth="2" strokeLinecap="round" /></svg>}
             label="Comensales por defecto" value="4 personas" onPress={() => {}}
           />
-          <Row
-            icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" stroke="#6B7FD4" strokeWidth="2" strokeLinecap="round" /></svg>}
-            label="Unidades de medida" value="Métrico" onPress={() => {}}
+          <ToggleRow
+            icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" stroke="#6B7FD4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+            label="Recordatorios de menú" tkey="recordatorios"
           />
         </Section>
 
         <Section title="Notificaciones">
-          <ToggleRow
-            icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" stroke="#9B6ABF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
-            label="Recordatorios de menú" tkey="recordatorios"
-          />
           <ToggleRow
             icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" stroke="#9B6ABF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /><path d="M22 6l-10 7L2 6" stroke="#9B6ABF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
             label="Novedades de la app" tkey="novedades"
@@ -1374,7 +1384,13 @@ function HomeScreen({ onOpenWeek, onRecipeDetail }: {
                 </div>
                 <div className="p-2.5">
                   <p className="text-xs font-bold text-gray-800 leading-tight truncate">{r.name}</p>
-                  <p className="text-[9px] text-gray-400 mt-0.5">{r.time}</p>
+                  <div className="flex items-center gap-1 mt-0.5">
+                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none">
+                      <circle cx="12" cy="12" r="10" stroke="#9CA3AF" strokeWidth="2.2" />
+                      <path d="M12 6v6l4 2" stroke="#9CA3AF" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    <span className="text-[9px] text-gray-400">{r.time}</span>
+                  </div>
                 </div>
               </button>
             ))}
@@ -1422,11 +1438,21 @@ function HomeScreen({ onOpenWeek, onRecipeDetail }: {
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 
+const ALL_KNOWN_RECIPES: Record<number, Recipe> = { ...ALL_RECIPES, [MONTHLY_SPECIAL.id]: MONTHLY_SPECIAL };
+
 export default function App() {
-  const [authScreen, setAuthScreen]   = useState<AuthScreen | null>("login");
-  const [view, setView]               = useState<View>({ type: "home" });
-  const [activeTab, setActiveTab]     = useState("menu");
-  const [showProfile, setShowProfile] = useState(false);
+  const [authScreen, setAuthScreen]         = useState<AuthScreen | null>("login");
+  const [view, setView]                     = useState<View>({ type: "home" });
+  const [activeTab, setActiveTab]           = useState("menu");
+  const [showProfile, setShowProfile]       = useState(false);
+  const [selectedRecipeIds, setSelectedIds] = useState<Set<number>>(new Set());
+
+  const toggleRecipeInList = (id: number) =>
+    setSelectedIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  const selectedRecipes = [...selectedRecipeIds]
+    .map((id) => ALL_KNOWN_RECIPES[id])
+    .filter(Boolean) as Recipe[];
 
   const handleTabChange = (t: string) => { setActiveTab(t); setView({ type: "home" }); };
   const handleLogin     = () => setAuthScreen(null);
@@ -1462,7 +1488,7 @@ export default function App() {
         {/* Tab content */}
         {activeTab === "menu"   && <HomeScreen onOpenWeek={(w) => setView({ type: "week-detail", week: w })} onRecipeDetail={(r) => setView({ type: "recipe-detail", recipe: r })} />}
         {activeTab === "ebooks" && <EbooksScreen />}
-        {activeTab === "lista"  && <ShoppingListTab />}
+        {activeTab === "lista"  && <ShoppingListTab selectedRecipes={selectedRecipes} onGoToMenu={() => handleTabChange("menu")} />}
 
         <BottomNav activeTab={activeTab} onTabChange={handleTabChange} />
 
@@ -1476,16 +1502,19 @@ export default function App() {
           />
         )}
         {view.type === "recipe-detail" && (
-          <RecipeDetailScreen recipe={view.recipe} onBack={() => setView({ type: "home" })} />
+          <RecipeDetailScreen
+            recipe={view.recipe}
+            onBack={() => setView({ type: "home" })}
+            isInList={selectedRecipeIds.has(view.recipe.id)}
+            onToggleList={() => toggleRecipeInList(view.recipe.id)}
+            onViewShoppingList={() => { setView({ type: "home" }); setActiveTab("lista"); }}
+          />
         )}
         {showProfile && <ProfileScreen onClose={() => setShowProfile(false)} />}
 
         {/* Auth overlays — appear on top of everything */}
         {authScreen === "login" && (
-          <LoginScreen
-            onLogin={handleLogin}
-            onCreateAccount={() => setAuthScreen("create-account")}
-          />
+          <LoginScreen onLogin={handleLogin} />
         )}
         {authScreen === "create-account" && (
           <CreateAccountScreen
