@@ -574,24 +574,30 @@ function fmtQty(qty: number): string {
   return String(Math.round(qty * 10) / 10);
 }
 
+const PORTION_STEPS = [2, 4, 6] as const;
+
 function PortionSelector({ portions, onChange, accentColor = RED }: {
   portions: number; onChange: (p: number) => void; accentColor?: string;
 }) {
-  const canDecrease = portions > 1;
-  const canIncrease = portions < 20;
+  const idx = PORTION_STEPS.indexOf(portions as 2 | 4 | 6);
+  const safeIdx = idx === -1 ? 1 : idx;
+  const canDecrease = safeIdx > 0;
+  const canIncrease = safeIdx < PORTION_STEPS.length - 1;
+  const decrease = () => canDecrease && onChange(PORTION_STEPS[safeIdx - 1]);
+  const increase = () => canIncrease && onChange(PORTION_STEPS[safeIdx + 1]);
   return (
     <div className="flex items-center justify-between py-1">
       <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Porciones</p>
       <div className="flex items-center gap-3">
-        <button onClick={() => canDecrease && onChange(portions - 1)}
+        <button onClick={decrease}
           className="w-8 h-8 rounded-full border-2 flex items-center justify-center transition-colors"
           style={{ borderColor: canDecrease ? accentColor : "#E5E7EB" }}>
           <span className="text-lg font-bold leading-none" style={{ color: canDecrease ? accentColor : "#D1D5DB" }}>−</span>
         </button>
         <span className="text-sm font-bold text-gray-800 tabular-nums" style={{ minWidth: 80, textAlign: "center" }}>
-          {portions} {portions === 1 ? "persona" : "personas"}
+          {PORTION_STEPS[safeIdx]} {PORTION_STEPS[safeIdx] === 1 ? "persona" : "personas"}
         </span>
-        <button onClick={() => canIncrease && onChange(portions + 1)}
+        <button onClick={increase}
           className="w-8 h-8 rounded-full flex items-center justify-center text-white transition-colors"
           style={{ backgroundColor: canIncrease ? accentColor : "#D1D5DB" }}>
           <span className="text-lg font-bold leading-none">+</span>
@@ -795,7 +801,7 @@ function WeekDetailScreen({ week, onBack, onRecipeDetail, onViewShoppingList }: 
   onViewShoppingList: () => void;
 }) {
   const uniqueIds = [...new Set(week.days.flatMap((d) => d.recipes.map((r) => r.id)))];
-  const [checked, setChecked] = useState<Set<number>>(new Set(uniqueIds));
+  const [checked, setChecked] = useState<Set<number>>(new Set());
   const toggle = (id: number) => setChecked((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   return (
@@ -961,7 +967,7 @@ function MisRecetasScreen({ selectedRecipes, doneIngredients, removedIngredients
       <div className="shrink-0 flex items-center gap-3 px-4 py-3 border-b border-gray-100 bg-white">
         <BackButton onBack={onClose} dark />
         <h1 className="text-sm font-bold text-gray-900 flex-1">Mis Recetas</h1>
-        <span className="text-xs font-semibold px-2.5 py-1 rounded-full text-white" style={{ backgroundColor: RED }}>
+        <span className="text-xs font-semibold px-2.5 py-1 rounded-full text-white" style={{ backgroundColor: "#2D6A4F" }}>
           {selectedRecipes.length}
         </span>
       </div>
@@ -1399,7 +1405,7 @@ function RecipeView({ selectedRecipes, doneIngredients, removedIngredients, onTo
 function ShoppingListTab({
   selectedRecipes, doneIngredients, removedIngredients,
   onToggleDone, onToggleAllDone, onRemoveIngredient, onRemoveRecipe,
-  onGoToMenu, onRecipeDetail,
+  onGoToMenu, onRecipeDetail, onMisRecetas,
 }: {
   selectedRecipes: Recipe[];
   doneIngredients: Set<string>;
@@ -1410,6 +1416,7 @@ function ShoppingListTab({
   onRemoveRecipe: (id: number) => void;
   onGoToMenu: () => void;
   onRecipeDetail: (r: Recipe) => void;
+  onMisRecetas: () => void;
 }) {
   const [listTab, setListTab] = useState<"categoria" | "receta">("categoria");
 
@@ -1434,34 +1441,29 @@ function ShoppingListTab({
     );
   }
 
-  // Global progress
-  const allActive = selectedRecipes.flatMap(r => flattenRecipeIngredients(r).filter(fi => !removedIngredients.has(fi.key)));
-  const totalItems = allActive.length;
-  const doneCount = allActive.filter(fi => doneIngredients.has(fi.key)).length;
-
   return (
     <div className="flex-1 flex flex-col bg-[#FAF6F0]" style={{ minHeight: 0 }}>
-      {/* Sub-tab bar */}
-      <div className="shrink-0 flex mx-4 mt-3 mb-1 bg-gray-100 rounded-2xl p-1">
-        {(["categoria", "receta"] as const).map(t => (
-          <button key={t} onClick={() => setListTab(t)}
-            className="flex-1 py-2 rounded-xl text-xs font-bold transition-all"
-            style={{ backgroundColor: listTab === t ? "white" : "transparent", color: listTab === t ? RED : "#6B7280",
-              boxShadow: listTab === t ? "0 1px 4px rgba(0,0,0,0.10)" : "none" }}>
-            {t === "categoria" ? "Por categoría" : "Por receta"}
-          </button>
-        ))}
-      </div>
-
-      {/* Progress bar */}
-      <div className="shrink-0 px-4 py-2">
-        <div className="flex justify-between text-[10px] text-gray-400 mb-1">
-          <span>{doneCount} de {totalItems} ingredientes</span>
-          <span>{totalItems > 0 ? Math.round((doneCount / totalItems) * 100) : 0}%</span>
+      {/* Sub-tab bar + Mis Recetas access */}
+      <div className="shrink-0 flex items-center gap-2 mx-4 mt-3 mb-2">
+        <div className="flex flex-1 bg-gray-100 rounded-2xl p-1">
+          {(["categoria", "receta"] as const).map(t => (
+            <button key={t} onClick={() => setListTab(t)}
+              className="flex-1 py-2 rounded-xl text-xs font-bold transition-all"
+              style={{ backgroundColor: listTab === t ? "white" : "transparent", color: listTab === t ? RED : "#6B7280",
+                boxShadow: listTab === t ? "0 1px 4px rgba(0,0,0,0.10)" : "none" }}>
+              {t === "categoria" ? "Por categoría" : "Por receta"}
+            </button>
+          ))}
         </div>
-        <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
-          <div className="h-full rounded-full transition-all duration-300" style={{ width: `${totalItems > 0 ? (doneCount / totalItems) * 100 : 0}%`, backgroundColor: RED }} />
-        </div>
+        <button onClick={onMisRecetas}
+          className="w-9 h-9 shrink-0 flex items-center justify-center rounded-2xl active:scale-90 transition-transform"
+          style={{ backgroundColor: "#2D6A4F" }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            <rect x="9" y="3" width="6" height="4" rx="1" stroke="white" strokeWidth="2" />
+            <path d="M9 12h6M9 16h4" stroke="white" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        </button>
       </div>
 
       {/* Tab content */}
@@ -1547,48 +1549,15 @@ function BookCover({ ebook, onOpen }: { ebook: typeof FREE_EBOOKS[0]; onOpen: ()
 }
 
 function EbooksScreen() {
-  const categories = [...new Set(FREE_EBOOKS.map((e) => e.category))];
-
+  const book = FREE_EBOOKS[0];
   return (
     <div className="flex-1 overflow-y-auto" style={{ backgroundColor: "#F5F3EF", scrollbarWidth: "none" }}>
-      {/* Library header */}
-      <div className="px-4 pt-4 pb-1 flex items-baseline justify-between">
-        <div>
-          <h2 className="font-bold text-gray-900" style={{ fontSize: 18 }}>Mi Biblioteca</h2>
-          <p className="text-xs text-gray-400 mt-0.5">{FREE_EBOOKS.length} libros disponibles · acceso gratuito</p>
-        </div>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-          <path d="M4 6h16M4 12h16M4 18h7" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" />
-        </svg>
+      <div className="px-4 pt-4 pb-1">
+        <h2 className="font-bold text-gray-900" style={{ fontSize: 18 }}>Mi Biblioteca</h2>
+        <p className="text-xs text-gray-400 mt-0.5">Acceso gratuito</p>
       </div>
-
-      {/* Shelves by category */}
-      <div className="pb-8 mt-4">
-        {categories.map((category) => {
-          const books = FREE_EBOOKS.filter((e) => e.category === category);
-          return (
-            <div key={category} className="mb-8">
-              {/* Shelf label */}
-              <div className="px-4 mb-3 flex items-center justify-between">
-                <p className="text-sm font-bold text-gray-700">{category}</p>
-                <span className="text-xs font-semibold" style={{ color: RED }}>{books.length} libros</span>
-              </div>
-
-              {/* Horizontal scroll of books */}
-              <div className="flex gap-5 px-4 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
-                {books.map((ebook) => (
-                  <BookCover key={ebook.id} ebook={ebook} onOpen={() => {}} />
-                ))}
-                {/* Phantom shelf fill — visual right edge */}
-                <div style={{ width: 1, flexShrink: 0 }} />
-              </div>
-
-              {/* Shelf plank */}
-              <div className="mx-4 mt-4 h-px" style={{ backgroundColor: "#E2DDD6" }} />
-              <div className="mx-4 h-1.5 rounded-b-sm" style={{ backgroundColor: "#D9D4CB" }} />
-            </div>
-          );
-        })}
+      <div className="flex justify-center mt-10">
+        <BookCover ebook={book} onOpen={() => {}} />
       </div>
     </div>
   );
@@ -1941,7 +1910,7 @@ export default function App() {
         {/* Tab content */}
         {activeTab === "menu"   && <HomeScreen onOpenWeek={(w) => setView({ type: "week-detail", week: w })} onRecipeDetail={(r) => setView({ type: "recipe-detail", recipe: r })} selectedCount={selectedRecipeIds.size} onMisRecetas={() => setShowMisRecetas(true)} />}
         {activeTab === "ebooks" && <EbooksScreen />}
-        {activeTab === "lista"  && <ShoppingListTab selectedRecipes={selectedRecipes} doneIngredients={doneIngredients} removedIngredients={removedIngredients} onToggleDone={toggleDone} onToggleAllDone={toggleAllDone} onRemoveIngredient={removeIngredient} onRemoveRecipe={removeRecipeFromList} onGoToMenu={() => handleTabChange("menu")} onRecipeDetail={(r) => setView({ type: "recipe-detail", recipe: r })} />}
+        {activeTab === "lista"  && <ShoppingListTab selectedRecipes={selectedRecipes} doneIngredients={doneIngredients} removedIngredients={removedIngredients} onToggleDone={toggleDone} onToggleAllDone={toggleAllDone} onRemoveIngredient={removeIngredient} onRemoveRecipe={removeRecipeFromList} onGoToMenu={() => handleTabChange("menu")} onRecipeDetail={(r) => setView({ type: "recipe-detail", recipe: r })} onMisRecetas={() => setShowMisRecetas(true)} />}
 
         <BottomNav activeTab={activeTab} onTabChange={handleTabChange} />
 
