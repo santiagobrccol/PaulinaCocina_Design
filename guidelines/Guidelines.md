@@ -1,61 +1,67 @@
-**Add your own guidelines here**
-<!--
+# System Guidelines — Paulina App
 
-System Guidelines
+> La fuente de verdad completa es **[`brand-manual/`](./brand-manual/README.md)**.
+> Este archivo es el resumen operable. Ante cualquier duda, gana el manual.
+> Estado: **Propuesta v0.1 — pendiente de aprobación.**
 
-Use this file to provide the AI with rules and guidelines you want it to follow.
-This template outlines a few examples of things you can add. You can add your own sections and format it to suit your needs
+## General
 
-TIP: More context isn't always better. It can confuse the LLM. Try and add the most important rules you need
+- Layouts responsivos con flexbox / grid. Posición absoluta solo si es imprescindible.
+- Componentes y helpers en archivos propios; archivos chicos.
+- Refactorizar sobre la marcha para mantener el código limpio.
+- Nunca usar valores crudos (hex, px sueltos, nombres de fuente): usar los tokens
+  de `guidelines/brand-manual/tokens.css`.
 
-# General guidelines
+## Color  ·  [detalle](./brand-manual/02-color.md)
 
-Any general rules you want the AI to follow.
-For example:
+- Solo tokens semánticos por nombre: `color/bg`, `color/surface`, `color/primary`,
+  `color/on-primary`, `color/text`, `color/text-muted`, `color/accent`,
+  `color/border`, `color/error`, `color/success`, `color/info`, `color/reader-bg`.
+- `color/primary` (`#C8171A`) = la acción de la pantalla. Una sola por vista.
+- Paleta secundaria: uso puntual (ilustración, categorías, gráficos). Nunca texto
+  ni superficies grandes.
+- Feedback con `error` / `success` / `info`. Contraste mínimo WCAG AA.
+- `color/text-muted` prohibido para cuerpo de texto largo.
 
-* Only use absolute positioning when necessary. Opt for responsive and well structured layouts that use flexbox and grid by default
-* Refactor code as you go to keep code clean
-* Keep file sizes small and put helper functions and components in their own files.
+## Tipografía  ·  [detalle](./brand-manual/03-tipografia.md)
 
---------------
+- Familias: **Montserrat** (Display, H1–H3, Button) + **Inter** (Body, Caption,
+  labels, datos).
+- 7 roles únicos — no crear tamaños intermedios:
+  Display 30/34 · H1 24/28 · H2 20/24 · H3 17/22 · Body 16/24 · Caption 13/18 · Button 15/18.
+- MAYÚSCULAS en Display, H1, H2 y Button — aplicadas por CSS, no escritas a mano.
+- Body y Caption en minúsculas (voz de marca), respetando nombres propios y siglas.
+- Un `<h1>` por pantalla.
 
-# Design system guidelines
-Rules for how the AI should make generations look like your company's design system
+## Iconografía  ·  [detalle](./brand-manual/04-iconografia.md)
 
-Additionally, if you select a design system to use in the prompt box, you can reference
-your design system's components, tokens, variables and components.
-For example:
+- Solo **`lucide-react`**. Sin otras librerías ni emoji en la UI.
+- `strokeWidth={1.75}`, `currentColor`, tamaño de la rampa: 16 / 20 (default) / 24 / 32.
+- Icono interactivo con área táctil ≥ 44 × 44.
+- Iconos nuevos: agregarlos primero al set base del manual.
 
-* Use a base font-size of 14px
-* Date formats should always be in the format “Jun 10”
-* The bottom toolbar should only ever have a maximum of 4 items
-* Never use the floating action button with the bottom toolbar
-* Chips should always come in sets of 3 or more
-* Don't use a dropdown if there are 2 or fewer options
+## Espaciado y forma  ·  [detalle](./brand-manual/01-fundamentos.md)
 
-You can also create sub sections and add more specific details
-For example:
+- Escala base 4: `4 / 8 / 12 / 16 / 24 / 32 / 48 / 64`. Márgenes de pantalla 16.
+- Radios: `sm 6 · md 8 · lg 10 · xl 14` (alineado con `--radius` de `theme.css`).
+- Bordes (`color/border`) antes que sombras. Sombra solo en overlays.
 
+## Botones
 
-## Button
-The Button component is a fundamental interactive element in our design system, designed to trigger actions or navigate
-users through the application. It provides visual feedback and clear affordances to enhance user experience.
+- Primario: relleno `color/primary` + texto `color/on-primary`, label estilo
+  `Button` (Montserrat 600, MAYÚSCULAS). Uno por sección.
+- Secundario: contorno `color/primary`, fondo transparente.
+- Terciario: solo texto `color/primary`.
 
-### Usage
-Buttons should be used for important actions that users need to take, such as form submissions, confirming choices,
-or initiating processes. They communicate interactivity and should have clear, action-oriented labels.
+## Carga y splash  ·  [detalle](./brand-manual/05-splash-y-carga.md)
 
-### Variants
-* Primary Button
-  * Purpose : Used for the main action in a section or page
-  * Visual Style : Bold, filled with the primary brand color
-  * Usage : One primary button per section to guide users toward the most important action
-* Secondary Button
-  * Purpose : Used for alternative or supporting actions
-  * Visual Style : Outlined with the primary color, transparent background
-  * Usage : Can appear alongside a primary button for less important actions
-* Tertiary Button
-  * Purpose : Used for the least important actions
-  * Visual Style : Text-only with no border, using primary color
-  * Usage : For actions that should be available but not emphasized
--->
+- Skeleton para contenido; spinner solo para acciones.
+- Splash: fondo `color/primary`, `logo_blanco.svg`, spinner 24 px
+  `color/on-primary`, mínimo visible 600 ms, timeout 5 s.
+- Respetar `prefers-reduced-motion`.
+
+## Proceso de cambio
+
+Propuesta (Figma / issue) → aprobación del dueño de marca → actualizar `.md` +
+`tokens.css` + variables de Figma en el mismo cambio → recién después tocar `src/`.
+Detalle en [`brand-manual/06-instrucciones-para-agentes.md`](./brand-manual/06-instrucciones-para-agentes.md).
