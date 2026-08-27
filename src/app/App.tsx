@@ -635,8 +635,8 @@ function StepList({ steps, accentColor = RED }: { steps: string[]; accentColor?:
   );
 }
 
-function RecipeDetailScreen({ recipe, onBack, isInList, onToggleList, onViewShoppingList }: {
-  recipe: Recipe; onBack: () => void; isInList: boolean; onToggleList: () => void; onViewShoppingList: () => void;
+function RecipeDetailScreen({ recipe, onBack, isInList, onToggleList, onViewShoppingList, onMarkCooked }: {
+  recipe: Recipe; onBack: () => void; isInList: boolean; onToggleList: () => void; onViewShoppingList: () => void; onMarkCooked?: () => void;
 }) {
   const [portions, setPortions]               = useState(DEFAULT_PORTIONS);
   const [garnishPortions, setGarnishPortions] = useState(DEFAULT_PORTIONS);
@@ -773,6 +773,14 @@ function RecipeDetailScreen({ recipe, onBack, isInList, onToggleList, onViewShop
             <button onClick={onViewShoppingList} className="px-5 py-4 rounded-2xl text-white text-sm font-bold active:scale-95" style={{ backgroundColor: RED }}>Ver lista</button>
           </div>
         )}
+        {isInList && (
+          <button onClick={onMarkCooked} className="mt-2 w-full py-2.5 flex items-center justify-center gap-2 rounded-xl active:scale-[0.98] transition-transform" style={{ backgroundColor: "#DCFCE7" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14l-4-4 1.41-1.41L11 13.17l6.59-6.59L19 8l-8 8z" fill="#5BAF7A" />
+            </svg>
+            <span className="text-xs font-bold" style={{ color: "#5BAF7A" }}>Marcar como cocinada</span>
+          </button>
+        )}
       </div>
     </div>
   );
@@ -879,42 +887,531 @@ function consolidatedLabel(c: Consolidated): string {
   return [...byUnit.entries()].map(([unit, qty]) => `${Math.round(qty * 10) / 10} ${unit}`).join(" + ");
 }
 
+// Top-level ingredient key (m = main, g = garnish)
+const ingKey = (recipeId: number, idx: number, garnish = false) =>
+  `${garnish ? "g" : "m"}-${recipeId}-${idx}`;
+
+// Category detection for shopping list grouping
+const CATEGORY_PATTERNS: [RegExp, string][] = [
+  [/pollo|pechuga|carne|lomo|cerdo|cordero|ternera|bife|costilla|chorizo|morcilla/i, "Carnicería"],
+  [/papa|zapallo|choclo|berenjena|acelga|espinaca|lechuga|zanahoria|apio|pimiento|hongo|champiñon|tomate|cebolla|diente.*ajo/i, "Verdulería"],
+  [/limón|limon|naranja|pomelo|manzana|pera|durazno|frutilla|fruta/i, "Verdulería"],
+  [/aceite|vinagre|mostaza|salsa|harina|azúcar|azucar|arroz|fideos|lenteja|garbanzo|caldo|concentrado|pasta\b|extracto|puré|pure/i, "Almacén"],
+  [/leche|queso|crema|manteca|mantequilla|yogur|ricota/i, "Lácteos"],
+  [/huevo/i, "Huevos"],
+  [/pan\b|baguette/i, "Panadería"],
+  [/vino|cerveza/i, "Bebidas"],
+];
+
+function getIngredientCategory(name: string): string {
+  for (const [pattern, cat] of CATEGORY_PATTERNS) {
+    if (pattern.test(name)) return cat;
+  }
+  return "Almacén";
+}
+
+interface FlatIngredient {
+  name: string; qty: number; unit: string;
+  key: string; isGarnish: boolean; recipeId: number; recipeName: string;
+}
+
+function flattenRecipeIngredients(recipe: Recipe): FlatIngredient[] {
+  const result: FlatIngredient[] = [];
+  recipe.ingredients.forEach((ing, i) => {
+    if (ing.qty > 0 && !EXCLUDED_UNITS.has(ing.unit))
+      result.push({ name: ing.name, qty: ing.qty, unit: ing.unit, key: ingKey(recipe.id, i), isGarnish: false, recipeId: recipe.id, recipeName: recipe.name });
+  });
+  if (recipe.garnish) {
+    recipe.garnish.ingredients.forEach((ing, i) => {
+      if (ing.qty > 0 && !EXCLUDED_UNITS.has(ing.unit))
+        result.push({ name: ing.name, qty: ing.qty, unit: ing.unit, key: ingKey(recipe.id, i, true), isGarnish: true, recipeId: recipe.id, recipeName: recipe.garnish!.name });
+    });
+  }
+  return result;
+}
+
+function recipeIngStatus(recipe: Recipe, done: Set<string>, removed: Set<string>): "green" | "orange" | "yellow" | "red" {
+  const active = flattenRecipeIngredients(recipe).filter(fi => !removed.has(fi.key));
+  if (active.length === 0) return "green";
+  const doneCount = active.filter(fi => done.has(fi.key)).length;
+  const pct = doneCount / active.length;
+  if (pct === 1) return "green";
+  if (pct >= 0.75) return "orange";
+  if (pct > 0) return "yellow";
+  return "red";
+}
+
+const STATUS_COLOR: Record<string, string> = {
+  green: "#5BAF7A", orange: "#E8793A", yellow: "#F59E0B", red: "#C8171A",
+};
+
+// ─── Mis Recetas Screen ───────────────────────────────────────────────────────
+
+function MisRecetasScreen({ selectedRecipes, doneIngredients, removedIngredients, onClose, onRecipeDetail, onMarkCooked }: {
+  selectedRecipes: Recipe[];
+  doneIngredients: Set<string>;
+  removedIngredients: Set<string>;
+  onClose: () => void;
+  onRecipeDetail: (r: Recipe) => void;
+  onMarkCooked: (id: number) => void;
+}) {
+  return (
+    <div className="absolute inset-0 z-40 flex flex-col bg-[#FAF6F0]" style={{ borderRadius: "inherit" }}>
+      <IPhoneStatusBar dark time="9:41" />
+      <div className="shrink-0 flex items-center gap-3 px-4 py-3 border-b border-gray-100 bg-white">
+        <BackButton onBack={onClose} dark />
+        <h1 className="text-sm font-bold text-gray-900 flex-1">Mis Recetas</h1>
+        <span className="text-xs font-semibold px-2.5 py-1 rounded-full text-white" style={{ backgroundColor: RED }}>
+          {selectedRecipes.length}
+        </span>
+      </div>
+
+      {/* Legend row */}
+      <div className="flex items-center gap-4 px-4 py-2 bg-white border-b border-gray-50">
+        {(["green","orange","yellow","red"] as const).map((s, i) => (
+          <div key={s} className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: STATUS_COLOR[s] }} />
+            <span className="text-[10px] text-gray-400">{["Listo","Casi","Pocos","Falta"][i]}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 py-4" style={{ scrollbarWidth: "none" }}>
+        {selectedRecipes.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-center">
+            <p className="text-sm text-gray-500">No tenés recetas en tu lista.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {selectedRecipes.map(recipe => {
+              const status = recipeIngStatus(recipe, doneIngredients, removedIngredients);
+              const active = flattenRecipeIngredients(recipe).filter(fi => !removedIngredients.has(fi.key));
+              const doneCount = active.filter(fi => doneIngredients.has(fi.key)).length;
+              return (
+                <div key={recipe.id} className="bg-white rounded-2xl shadow-sm overflow-hidden">
+                  <button onClick={() => onRecipeDetail(recipe)} className="w-full flex items-center gap-3 px-4 py-3 active:bg-gray-50 transition-colors text-left">
+                    <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0">
+                      <ImageWithFallback src={recipe.image} alt={recipe.name} className="w-full h-full object-cover" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <DietBadge diet={recipe.diet} small />
+                      <p className="text-sm font-bold text-gray-800 truncate mt-0.5">{recipe.name}</p>
+                    </div>
+                    {/* Status bar indicator */}
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: STATUS_COLOR[status] }} />
+                      <span className="text-[10px] text-gray-400">{doneCount}/{active.length}</span>
+                    </div>
+                    {/* Mark cooked button */}
+                    <button
+                      onClick={e => { e.stopPropagation(); onMarkCooked(recipe.id); }}
+                      className="w-9 h-9 flex items-center justify-center rounded-full ml-1 active:scale-90 transition-transform shrink-0"
+                      style={{ backgroundColor: status === "green" ? "#DCFCE7" : "#F3F4F6" }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14l-4-4 1.41-1.41L11 13.17l6.59-6.59L19 8l-8 8z"
+                          fill={status === "green" ? "#5BAF7A" : "#9CA3AF"} />
+                      </svg>
+                    </button>
+                  </button>
+                  {/* Progress bar */}
+                  <div className="h-1 bg-gray-100 mx-4 mb-3 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full transition-all duration-500"
+                      style={{ width: `${active.length > 0 ? (doneCount / active.length) * 100 : 0}%`, backgroundColor: STATUS_COLOR[status] }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Shopping List Tab — sub-components ──────────────────────────────────────
+
+function CategoryView({ selectedRecipes, doneIngredients, removedIngredients, onToggleDone, onToggleAllDone }: {
+  selectedRecipes: Recipe[];
+  doneIngredients: Set<string>;
+  removedIngredients: Set<string>;
+  onToggleDone: (key: string) => void;
+  onToggleAllDone: (keys: string[], done: boolean) => void;
+}) {
+  const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set());
+  const [copied, setCopied] = useState<string | null>(null);
+
+  const allActive = selectedRecipes.flatMap(r => flattenRecipeIngredients(r).filter(fi => !removedIngredients.has(fi.key)));
+
+  // Consolidate by ingredient name
+  const consolidated = new Map<string, { qty: number; unit: string; keys: string[] }>();
+  for (const fi of allActive) {
+    if (!consolidated.has(fi.name)) consolidated.set(fi.name, { qty: 0, unit: fi.unit, keys: [] });
+    const c = consolidated.get(fi.name)!;
+    c.qty += fi.qty;
+    c.keys.push(fi.key);
+  }
+
+  // Group by category
+  const byCategory = new Map<string, Array<{ name: string; qty: number; unit: string; keys: string[] }>>();
+  for (const [name, data] of consolidated) {
+    const cat = getIngredientCategory(name);
+    if (!byCategory.has(cat)) byCategory.set(cat, []);
+    byCategory.get(cat)!.push({ name, ...data });
+  }
+
+  const copyText = (text: string, key: string) => {
+    navigator.clipboard?.writeText(text).catch(() => {});
+    setCopied(key);
+    setTimeout(() => setCopied(null), 2000);
+  };
+
+  const fmtQtyLabel = (qty: number, unit: string) => `${Math.round(qty * 10) / 10} ${unit}`;
+
+  // Copy all
+  const handleCopyAll = () => {
+    const lines: string[] = [];
+    for (const [cat, items] of byCategory) {
+      lines.push(`${cat}:`);
+      items.forEach(item => lines.push(`  • ${item.name}: ${fmtQtyLabel(item.qty, item.unit)}`));
+    }
+    copyText(lines.join("\n"), "__all__");
+  };
+
+  const toggleCat = (cat: string) =>
+    setExpandedCats(prev => { const n = new Set(prev); n.has(cat) ? n.delete(cat) : n.add(cat); return n; });
+
+  return (
+    <div>
+      {/* Copy all */}
+      <div className="flex justify-end mb-3">
+        <button onClick={handleCopyAll}
+          className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full transition-colors"
+          style={{ color: copied === "__all__" ? "#5BAF7A" : RED, backgroundColor: copied === "__all__" ? "#DCFCE7" : RED_LIGHT }}>
+          {copied === "__all__" ? (
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke="#5BAF7A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          ) : (
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" stroke={RED} strokeWidth="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke={RED} strokeWidth="2" strokeLinecap="round" /></svg>
+          )}
+          {copied === "__all__" ? "Copiado" : "Copiar todo"}
+        </button>
+      </div>
+
+      <div className="space-y-3">
+        {[...byCategory].map(([cat, items]) => {
+          const expanded = expandedCats.has(cat);
+          const allKeys = items.flatMap(item => item.keys);
+          const allDone = allKeys.length > 0 && allKeys.every(k => doneIngredients.has(k));
+          const someDone = !allDone && allKeys.some(k => doneIngredients.has(k));
+
+          return (
+            <div key={cat} className="bg-white rounded-2xl overflow-hidden shadow-sm">
+              {/* Category header */}
+              <div className="flex items-center gap-2 px-3 py-3" style={{ borderBottom: expanded ? "1px solid #F3F4F6" : "none" }}>
+                {/* Check-all toggle */}
+                <button onClick={() => onToggleAllDone(allKeys, !allDone)}
+                  className="w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors"
+                  style={{ borderColor: allDone ? "#5BAF7A" : someDone ? "#F59E0B" : "#D1D5DB", backgroundColor: allDone ? "#5BAF7A" : "white" }}>
+                  {allDone && <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                  {someDone && !allDone && <div className="w-2 h-2 rounded-full" style={{ backgroundColor: "#F59E0B" }} />}
+                </button>
+
+                {/* Category name + count - tap to expand */}
+                <button onClick={() => toggleCat(cat)} className="flex-1 text-left">
+                  <p className="text-sm font-bold text-gray-800">{cat}</p>
+                  <p className="text-[10px] text-gray-400">{items.length} {items.length === 1 ? "producto" : "productos"}</p>
+                </button>
+
+                {/* Copy category */}
+                <button onClick={() => {
+                  const text = `${cat}:\n` + items.map(item => `• ${item.name}: ${fmtQtyLabel(item.qty, item.unit)}`).join("\n");
+                  copyText(text, cat);
+                }} className="w-8 h-8 flex items-center justify-center rounded-full transition-colors"
+                  style={{ backgroundColor: copied === cat ? "#DCFCE7" : "#F3F4F6" }}>
+                  {copied === cat
+                    ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke="#5BAF7A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                    : <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" stroke="#9CA3AF" strokeWidth="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" /></svg>
+                  }
+                </button>
+
+                {/* Expand chevron */}
+                <button onClick={() => toggleCat(cat)} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-50">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="transition-transform"
+                    style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)" }}>
+                    <path d="M6 9l6 6 6-6" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Ingredient rows */}
+              {expanded && (
+                <div className="divide-y divide-gray-50">
+                  {items.map(item => {
+                    const allItemDone = item.keys.every(k => doneIngredients.has(k));
+                    return (
+                      <button key={item.name}
+                        onClick={() => onToggleAllDone(item.keys, !allItemDone)}
+                        className="w-full flex items-center gap-3 px-4 py-3 active:bg-gray-50 transition-colors text-left">
+                        <div className="w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors"
+                          style={{ borderColor: allItemDone ? "#5BAF7A" : "#D1D5DB", backgroundColor: allItemDone ? "#5BAF7A" : "white" }}>
+                          {allItemDone && <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                        </div>
+                        <span className="flex-1 text-sm transition-colors"
+                          style={{ color: allItemDone ? "#9CA3AF" : "#1F2937", textDecoration: allItemDone ? "line-through" : "none" }}>
+                          {item.name}
+                        </span>
+                        <span className="text-xs font-semibold shrink-0"
+                          style={{ color: allItemDone ? "#D1D5DB" : "#6B7280" }}>
+                          {fmtQtyLabel(item.qty, item.unit)}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function RecipeView({ selectedRecipes, doneIngredients, removedIngredients, onToggleDone, onToggleAllDone, onRemoveIngredient, onRemoveRecipe, onRecipeDetail }: {
+  selectedRecipes: Recipe[];
+  doneIngredients: Set<string>;
+  removedIngredients: Set<string>;
+  onToggleDone: (key: string) => void;
+  onToggleAllDone: (keys: string[], done: boolean) => void;
+  onRemoveIngredient: (key: string) => void;
+  onRemoveRecipe: (id: number) => void;
+  onRecipeDetail: (r: Recipe) => void;
+}) {
+  const [expandedRecipes, setExpandedRecipes] = useState<Set<number>>(new Set(selectedRecipes.map(r => r.id)));
+  const [deleteMode, setDeleteMode] = useState(false);
+  const [selectedForDelete, setSelectedForDelete] = useState<Set<number>>(new Set());
+  const [copied, setCopied] = useState<number | null>(null);
+
+  const toggleExpand = (id: number) =>
+    setExpandedRecipes(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  const toggleSelectDelete = (id: number) =>
+    setSelectedForDelete(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  const copyRecipe = (recipe: Recipe) => {
+    const ings = flattenRecipeIngredients(recipe).filter(fi => !removedIngredients.has(fi.key));
+    const text = `${recipe.name}:\n` + ings.map(fi => `• ${fi.name}: ${fi.qty} ${fi.unit}`).join("\n");
+    navigator.clipboard?.writeText(text).catch(() => {});
+    setCopied(recipe.id);
+    setTimeout(() => setCopied(null), 2000);
+  };
+
+  const handleBulkDelete = () => {
+    selectedForDelete.forEach(id => onRemoveRecipe(id));
+    setDeleteMode(false);
+    setSelectedForDelete(new Set());
+  };
+
+  const visibleRecipes = selectedRecipes.filter(r => flattenRecipeIngredients(r).filter(fi => !removedIngredients.has(fi.key)).length > 0);
+
+  return (
+    <div>
+      {/* Actions bar */}
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
+          {visibleRecipes.length} {visibleRecipes.length === 1 ? "receta" : "recetas"}
+        </span>
+        {deleteMode ? (
+          <div className="flex gap-2">
+            <button onClick={handleBulkDelete} disabled={selectedForDelete.size === 0}
+              className="text-xs font-bold px-3 py-1.5 rounded-full transition-opacity"
+              style={{ backgroundColor: selectedForDelete.size > 0 ? "#FEF2F2" : "#F3F4F6", color: selectedForDelete.size > 0 ? "#EF4444" : "#9CA3AF" }}>
+              Eliminar {selectedForDelete.size > 0 ? `(${selectedForDelete.size})` : ""}
+            </button>
+            <button onClick={() => { setDeleteMode(false); setSelectedForDelete(new Set()); }}
+              className="text-xs font-bold px-3 py-1.5 rounded-full bg-gray-100 text-gray-600">
+              Cancelar
+            </button>
+          </div>
+        ) : (
+          <button onClick={() => setDeleteMode(true)}
+            className="text-xs font-semibold px-3 py-1.5 rounded-full"
+            style={{ color: RED, backgroundColor: RED_LIGHT }}>
+            Seleccionar
+          </button>
+        )}
+      </div>
+
+      <div className="space-y-3">
+        {visibleRecipes.map(recipe => {
+          const activeIngs = flattenRecipeIngredients(recipe).filter(fi => !removedIngredients.has(fi.key));
+          const allKeys = activeIngs.map(fi => fi.key);
+          const doneCount = activeIngs.filter(fi => doneIngredients.has(fi.key)).length;
+          const allDone = activeIngs.length > 0 && doneCount === activeIngs.length;
+          const expanded = expandedRecipes.has(recipe.id);
+          const isSelected = selectedForDelete.has(recipe.id);
+
+          const mainIngs = activeIngs.filter(fi => !fi.isGarnish);
+          const garnishIngs = activeIngs.filter(fi => fi.isGarnish);
+
+          return (
+            <div key={recipe.id} className="bg-white rounded-2xl overflow-hidden shadow-sm">
+              {/* Recipe header */}
+              <div className="flex items-center gap-2 px-3 py-3" style={{ borderBottom: expanded ? "1px solid #F3F4F6" : "none" }}>
+                {/* Selection checkbox */}
+                {deleteMode && (
+                  <button onClick={() => toggleSelectDelete(recipe.id)}
+                    className="w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors"
+                    style={{ borderColor: isSelected ? RED : "#D1D5DB", backgroundColor: isSelected ? RED : "white" }}>
+                    {isSelected && <svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                  </button>
+                )}
+
+                {/* Thumbnail */}
+                <button onClick={() => onRecipeDetail(recipe)} className="w-10 h-10 rounded-xl overflow-hidden shrink-0 active:scale-95 transition-transform">
+                  <ImageWithFallback src={recipe.image} alt={recipe.name} className="w-full h-full object-cover" />
+                </button>
+
+                {/* Name */}
+                <button onClick={() => onRecipeDetail(recipe)} className="flex-1 min-w-0 text-left active:opacity-70">
+                  <p className="text-sm font-bold text-gray-800 truncate">{recipe.name}</p>
+                  <p className="text-[10px] text-gray-400">{doneCount}/{activeIngs.length}</p>
+                </button>
+
+                {/* Action icons */}
+                <div className="flex items-center gap-1 shrink-0">
+                  {/* Check all */}
+                  <button onClick={() => onToggleAllDone(allKeys, !allDone)}
+                    className="w-8 h-8 flex items-center justify-center rounded-full transition-colors"
+                    style={{ backgroundColor: allDone ? "#DCFCE7" : "#F3F4F6" }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                      <path d="M20 6L9 17l-5-5" stroke={allDone ? "#5BAF7A" : "#9CA3AF"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                  {/* Copy */}
+                  <button onClick={() => copyRecipe(recipe)}
+                    className="w-8 h-8 flex items-center justify-center rounded-full transition-colors"
+                    style={{ backgroundColor: copied === recipe.id ? "#DCFCE7" : "#F3F4F6" }}>
+                    {copied === recipe.id
+                      ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke="#5BAF7A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                      : <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" stroke="#9CA3AF" strokeWidth="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" /></svg>
+                    }
+                  </button>
+                  {/* Delete (not in delete-mode) */}
+                  {!deleteMode && (
+                    <button onClick={() => onRemoveRecipe(recipe.id)}
+                      className="w-8 h-8 flex items-center justify-center rounded-full"
+                      style={{ backgroundColor: "#FEF2F2" }}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+                        <polyline points="3 6 5 6 21 6" stroke="#EF4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d="M19 6l-1 14H6L5 6" stroke="#EF4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d="M10 11v6M14 11v6" stroke="#EF4444" strokeWidth="2" strokeLinecap="round" />
+                        <path d="M9 6V4h6v2" stroke="#EF4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </button>
+                  )}
+                  {/* Expand */}
+                  <button onClick={() => toggleExpand(recipe.id)}
+                    className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-50">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="transition-transform"
+                      style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)" }}>
+                      <path d="M6 9l6 6 6-6" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              {/* Ingredient rows */}
+              {expanded && (
+                <div className="divide-y divide-gray-50">
+                  {mainIngs.map(fi => {
+                    const isDone = doneIngredients.has(fi.key);
+                    return (
+                      <div key={fi.key} className="flex items-center gap-3 px-4 py-2.5">
+                        <button onClick={() => onToggleDone(fi.key)}
+                          className="w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors"
+                          style={{ borderColor: isDone ? "#5BAF7A" : "#D1D5DB", backgroundColor: isDone ? "#5BAF7A" : "white" }}>
+                          {isDone && <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                        </button>
+                        <span className="flex-1 text-sm transition-colors"
+                          style={{ color: isDone ? "#9CA3AF" : "#1F2937", textDecoration: isDone ? "line-through" : "none" }}>
+                          {fi.name}
+                        </span>
+                        <span className="text-xs font-semibold mr-1" style={{ color: isDone ? "#D1D5DB" : "#6B7280" }}>
+                          {fi.qty} {fi.unit}
+                        </span>
+                        <button onClick={() => onRemoveIngredient(fi.key)}
+                          className="w-6 h-6 flex items-center justify-center rounded-full shrink-0"
+                          style={{ backgroundColor: "#FEF2F2" }}>
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+                            <path d="M18 6L6 18M6 6l12 12" stroke="#EF4444" strokeWidth="2.5" strokeLinecap="round" />
+                          </svg>
+                        </button>
+                      </div>
+                    );
+                  })}
+                  {garnishIngs.length > 0 && (
+                    <>
+                      <div className="px-4 py-1.5 border-t border-gray-50" style={{ backgroundColor: "#FFF7F0" }}>
+                        <p className="text-[9px] font-bold uppercase tracking-widest" style={{ color: ORANGE_TODAY }}>
+                          Guarnición — {recipe.garnish?.name}
+                        </p>
+                      </div>
+                      {garnishIngs.map(fi => {
+                        const isDone = doneIngredients.has(fi.key);
+                        return (
+                          <div key={fi.key} className="flex items-center gap-3 px-4 py-2.5">
+                            <button onClick={() => onToggleDone(fi.key)}
+                              className="w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors"
+                              style={{ borderColor: isDone ? ORANGE_TODAY : "#D1D5DB", backgroundColor: isDone ? ORANGE_TODAY : "white" }}>
+                              {isDone && <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                            </button>
+                            <span className="flex-1 text-sm transition-colors"
+                              style={{ color: isDone ? "#9CA3AF" : "#1F2937", textDecoration: isDone ? "line-through" : "none" }}>
+                              {fi.name}
+                            </span>
+                            <span className="text-xs font-semibold mr-1" style={{ color: isDone ? "#D1D5DB" : "#6B7280" }}>
+                              {fi.qty} {fi.unit}
+                            </span>
+                            <button onClick={() => onRemoveIngredient(fi.key)}
+                              className="w-6 h-6 flex items-center justify-center rounded-full shrink-0"
+                              style={{ backgroundColor: "#FEF2F2" }}>
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+                                <path d="M18 6L6 18M6 6l12 12" stroke="#EF4444" strokeWidth="2.5" strokeLinecap="round" />
+                              </svg>
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Shopping List Tab ────────────────────────────────────────────────────────
 
-function ShoppingListTab({ selectedRecipes, onGoToMenu }: { selectedRecipes: Recipe[]; onGoToMenu: () => void }) {
-  const ingKey = (recipeId: number, idx: number) => `${recipeId}-${idx}`;
-
-  const [doneSet, setDoneSet]           = useState<Set<string>>(new Set());
-  const [expandedDone, setExpandedDone] = useState<Set<number>>(new Set());
-  const [summaryOpen, setSummaryOpen]   = useState(false);
-  const [summaryDone, setSummaryDone]   = useState<Set<string>>(new Set());
-
-  const consolidated = buildConsolidated(selectedRecipes);
-  const totalItems   = selectedRecipes.reduce((sum, r) => sum + measurableIdxs(r).length, 0);
-  const doneCount    = doneSet.size;
-
-  const toggleIngredient = (recipeId: number, idx: number) => {
-    setDoneSet((prev) => {
-      const n = new Set(prev);
-      const k = ingKey(recipeId, idx);
-      if (n.has(k)) {
-        n.delete(k);
-        setExpandedDone((ed) => { const ne = new Set(ed); ne.delete(recipeId); return ne; });
-      } else {
-        n.add(k);
-        const recipe = selectedRecipes.find((r) => r.id === recipeId)!;
-        const allNowDone = measurableIdxs(recipe).every((i) => n.has(ingKey(recipeId, i)));
-        if (allNowDone) {
-          setExpandedDone((ed) => { const ne = new Set(ed); ne.delete(recipeId); return ne; });
-        }
-      }
-      return n;
-    });
-  };
-
-  const toggleExpandDone = (recipeId: number) => {
-    setExpandedDone((prev) => { const n = new Set(prev); n.has(recipeId) ? n.delete(recipeId) : n.add(recipeId); return n; });
-  };
+function ShoppingListTab({
+  selectedRecipes, doneIngredients, removedIngredients,
+  onToggleDone, onToggleAllDone, onRemoveIngredient, onRemoveRecipe,
+  onGoToMenu, onRecipeDetail,
+}: {
+  selectedRecipes: Recipe[];
+  doneIngredients: Set<string>;
+  removedIngredients: Set<string>;
+  onToggleDone: (key: string) => void;
+  onToggleAllDone: (keys: string[], done: boolean) => void;
+  onRemoveIngredient: (key: string) => void;
+  onRemoveRecipe: (id: number) => void;
+  onGoToMenu: () => void;
+  onRecipeDetail: (r: Recipe) => void;
+}) {
+  const [listTab, setListTab] = useState<"categoria" | "receta">("categoria");
 
   if (selectedRecipes.length === 0) {
     return (
@@ -937,141 +1434,42 @@ function ShoppingListTab({ selectedRecipes, onGoToMenu }: { selectedRecipes: Rec
     );
   }
 
+  // Global progress
+  const allActive = selectedRecipes.flatMap(r => flattenRecipeIngredients(r).filter(fi => !removedIngredients.has(fi.key)));
+  const totalItems = allActive.length;
+  const doneCount = allActive.filter(fi => doneIngredients.has(fi.key)).length;
+
   return (
-    <div className="flex-1 overflow-y-auto bg-[#FAF6F0]" style={{ scrollbarWidth: "none" }}>
-      <div className="px-4 pt-4 pb-6">
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-xs text-gray-400">{selectedRecipes.length} {selectedRecipes.length === 1 ? "receta" : "recetas"} seleccionadas</p>
-          {doneCount > 0 && (
-            <button onClick={() => { setDoneSet(new Set()); setExpandedDone(new Set()); setSummaryDone(new Set()); }}
-              className="text-xs font-semibold px-3 py-1.5 rounded-full" style={{ color: RED, backgroundColor: RED_LIGHT }}>
-              Limpiar todo
-            </button>
-          )}
-        </div>
-
-        {/* Progress */}
-        <div className="mb-5">
-          <div className="flex justify-between text-xs text-gray-400 mb-1">
-            <span>{doneCount} de {totalItems} ingredientes</span>
-            <span>{totalItems > 0 ? Math.round((doneCount / totalItems) * 100) : 0}%</span>
-          </div>
-          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-            <div className="h-full rounded-full transition-all duration-300"
-              style={{ width: `${totalItems > 0 ? (doneCount / totalItems) * 100 : 0}%`, backgroundColor: RED }} />
-          </div>
-        </div>
-
-        {/* Resumen consolidado */}
-        <div className="bg-white rounded-2xl overflow-hidden shadow-sm mb-4">
-          <button onClick={() => setSummaryOpen((v) => !v)}
-            className="w-full flex items-center gap-3 px-4 py-3 active:bg-gray-50 transition-colors">
-            <div className="flex-1 text-left">
-              <p className="text-sm font-bold text-gray-900">Resumen consolidado</p>
-              <p className="text-[10px] text-gray-400">{consolidated.length} ingredientes únicos</p>
-            </div>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="shrink-0 transition-transform"
-              style={{ transform: summaryOpen ? "rotate(180deg)" : "rotate(0deg)" }}>
-              <path d="M6 9l6 6 6-6" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+    <div className="flex-1 flex flex-col bg-[#FAF6F0]" style={{ minHeight: 0 }}>
+      {/* Sub-tab bar */}
+      <div className="shrink-0 flex mx-4 mt-3 mb-1 bg-gray-100 rounded-2xl p-1">
+        {(["categoria", "receta"] as const).map(t => (
+          <button key={t} onClick={() => setListTab(t)}
+            className="flex-1 py-2 rounded-xl text-xs font-bold transition-all"
+            style={{ backgroundColor: listTab === t ? "white" : "transparent", color: listTab === t ? RED : "#6B7280",
+              boxShadow: listTab === t ? "0 1px 4px rgba(0,0,0,0.10)" : "none" }}>
+            {t === "categoria" ? "Por categoría" : "Por receta"}
           </button>
-          {summaryOpen && (
-            <div className="divide-y divide-gray-50 border-t border-gray-50">
-              {consolidated.map((c) => {
-                const done = summaryDone.has(c.name);
-                return (
-                  <button key={c.name}
-                    onClick={() => setSummaryDone((prev) => { const n = new Set(prev); n.has(c.name) ? n.delete(c.name) : n.add(c.name); return n; })}
-                    className="w-full flex items-center gap-3 px-4 py-3 active:bg-gray-50 transition-colors text-left">
-                    <div className="w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors"
-                      style={{ borderColor: done ? "#5BAF7A" : "#D1D5DB", backgroundColor: done ? "#5BAF7A" : "white" }}>
-                      {done && <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>}
-                    </div>
-                    <span className="flex-1 text-sm" style={{ color: done ? "#9CA3AF" : "#1F2937", textDecoration: done ? "line-through" : "none" }}>{c.name}</span>
-                    <span className="text-xs font-semibold shrink-0" style={{ color: done ? "#C0C0C0" : "#6B7280" }}>{consolidatedLabel(c)}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
+        ))}
+      </div>
+
+      {/* Progress bar */}
+      <div className="shrink-0 px-4 py-2">
+        <div className="flex justify-between text-[10px] text-gray-400 mb-1">
+          <span>{doneCount} de {totalItems} ingredientes</span>
+          <span>{totalItems > 0 ? Math.round((doneCount / totalItems) * 100) : 0}%</span>
         </div>
-
-        {/* Per-recipe cards */}
-        <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">Por receta</p>
-        <div className="space-y-3">
-          {selectedRecipes.map((recipe) => {
-            const mIdxs     = measurableIdxs(recipe);
-            const recipeDone = mIdxs.filter((i) => doneSet.has(ingKey(recipe.id, i))).length;
-            const allDone    = mIdxs.length > 0 && recipeDone === mIdxs.length;
-            const showIngredients = !allDone || expandedDone.has(recipe.id);
-
-            return (
-              <div key={recipe.id} className="bg-white rounded-2xl overflow-hidden shadow-sm">
-                <button
-                  onClick={() => allDone && toggleExpandDone(recipe.id)}
-                  className="w-full flex items-center gap-3 px-4 py-3 text-left"
-                  style={{ borderBottom: showIngredients ? "1px solid #F3F4F6" : "none", cursor: allDone ? "pointer" : "default" }}>
-                  <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0">
-                    <ImageWithFallback src={recipe.image} alt={recipe.name} className="w-full h-full object-cover" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <DietBadge diet={recipe.diet} small />
-                    <p className="text-sm font-bold text-gray-800 truncate mt-0.5">{recipe.name}</p>
-                  </div>
-                  {allDone ? (
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <span className="text-xs font-bold" style={{ color: "#5BAF7A" }}>{mIdxs.length}/{mIdxs.length}</span>
-                      <div className="w-5 h-5 rounded-full flex items-center justify-center" style={{ backgroundColor: "#5BAF7A" }}>
-                        <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                      </div>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="transition-transform"
-                        style={{ transform: expandedDone.has(recipe.id) ? "rotate(180deg)" : "rotate(0deg)" }}>
-                        <path d="M6 9l6 6 6-6" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </div>
-                  ) : (
-                    <span className="text-xs font-semibold shrink-0" style={{ color: "#9CA3AF" }}>{recipeDone}/{mIdxs.length}</span>
-                  )}
-                </button>
-                {showIngredients && (
-                  <div className="divide-y divide-gray-50">
-                    {recipe.ingredients.map((ing, i) => {
-                      if (ing.qty === 0 || EXCLUDED_UNITS.has(ing.unit)) return null;
-                      const isDone = doneSet.has(ingKey(recipe.id, i));
-                      return (
-                        <button key={i} onClick={() => toggleIngredient(recipe.id, i)}
-                          className="w-full flex items-center gap-3 px-4 py-3 active:bg-gray-50 transition-colors text-left">
-                          <div className="w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors"
-                            style={{ borderColor: isDone ? "#5BAF7A" : "#D1D5DB", backgroundColor: isDone ? "#5BAF7A" : "white" }}>
-                            {isDone && <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>}
-                          </div>
-                          <span className="flex-1 text-sm transition-colors"
-                            style={{ color: isDone ? "#9CA3AF" : "#1F2937", textDecoration: isDone ? "line-through" : "none" }}>
-                            {ing.name}
-                          </span>
-                          <span className="text-xs font-semibold shrink-0"
-                            style={{ color: isDone ? "#C0C0C0" : "#6B7280" }}>
-                            {ing.qty} {ing.unit}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+        <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+          <div className="h-full rounded-full transition-all duration-300" style={{ width: `${totalItems > 0 ? (doneCount / totalItems) * 100 : 0}%`, backgroundColor: RED }} />
         </div>
+      </div>
 
-        {doneCount === totalItems && totalItems > 0 && (
-          <div className="mt-6 flex flex-col items-center text-center">
-            <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3" style={{ backgroundColor: "#5BAF7A" }}>
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M20 6L9 17l-5-5" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-            </div>
-            <p className="font-bold text-gray-800">¡Lista completa!</p>
-            <p className="text-xs text-gray-400 mt-1">Ya tenés todo para cocinar esta semana.</p>
-          </div>
-        )}
+      {/* Tab content */}
+      <div className="flex-1 overflow-y-auto px-4 pb-6 pt-1" style={{ scrollbarWidth: "none" }}>
+        {listTab === "categoria"
+          ? <CategoryView selectedRecipes={selectedRecipes} doneIngredients={doneIngredients} removedIngredients={removedIngredients} onToggleDone={onToggleDone} onToggleAllDone={onToggleAllDone} />
+          : <RecipeView selectedRecipes={selectedRecipes} doneIngredients={doneIngredients} removedIngredients={removedIngredients} onToggleDone={onToggleDone} onToggleAllDone={onToggleAllDone} onRemoveIngredient={onRemoveIngredient} onRemoveRecipe={onRemoveRecipe} onRecipeDetail={onRecipeDetail} />
+        }
       </div>
     </div>
   );
@@ -1356,13 +1754,36 @@ function ProfileScreen({ onClose }: { onClose: () => void }) {
 
 // ─── Home Screen ──────────────────────────────────────────────────────────────
 
-function HomeScreen({ onOpenWeek, onRecipeDetail }: {
+function HomeScreen({ onOpenWeek, onRecipeDetail, selectedCount, onMisRecetas }: {
   onOpenWeek: (w: Week) => void;
   onRecipeDetail: (r: Recipe) => void;
+  selectedCount: number;
+  onMisRecetas: () => void;
 }) {
   return (
     <div className="flex-1 overflow-y-auto bg-white" style={{ scrollbarWidth: "none" }}>
       <div className="p-4">
+        {/* Mis Recetas pill — shown when recipes are in list */}
+        {selectedCount > 0 && (
+          <button onClick={onMisRecetas}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl mb-4 active:scale-[0.98] transition-transform shadow-sm"
+            style={{ background: "linear-gradient(135deg, #1A1A2E 0%, #16213E 100%)" }}>
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: "rgba(255,255,255,0.10)" }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <rect x="9" y="3" width="6" height="4" rx="1" stroke="white" strokeWidth="2" />
+                <path d="M9 12h6M9 16h4" stroke="white" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            </div>
+            <div className="flex-1 text-left">
+              <p className="text-white text-sm font-bold">Mis Recetas</p>
+              <p className="text-white/60 text-xs">{selectedCount} {selectedCount === 1 ? "receta" : "recetas"} en tu lista</p>
+            </div>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path d="M9 18l6-6-6-6" stroke="rgba(255,255,255,0.5)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        )}
         {/* Today card — orange gradient, 2 recipes (Estándar + Vegana) */}
         <div className="rounded-2xl overflow-hidden mb-6"
           style={{ background: "linear-gradient(150deg, #F5A04A 0%, #D45C18 100%)" }}>
@@ -1446,6 +1867,10 @@ export default function App() {
   const [activeTab, setActiveTab]           = useState("menu");
   const [showProfile, setShowProfile]       = useState(false);
   const [selectedRecipeIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [doneIngredients, setDoneIngredients]       = useState<Set<string>>(new Set());
+  const [removedIngredients, setRemovedIngredients] = useState<Set<string>>(new Set());
+  const [cookedRecipeIds, setCookedIds]             = useState<Set<number>>(new Set());
+  const [showMisRecetas, setShowMisRecetas]         = useState(false);
 
   const toggleRecipeInList = (id: number) =>
     setSelectedIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -1453,6 +1878,34 @@ export default function App() {
   const selectedRecipes = [...selectedRecipeIds]
     .map((id) => ALL_KNOWN_RECIPES[id])
     .filter(Boolean) as Recipe[];
+
+  const toggleDone = (key: string) =>
+    setDoneIngredients(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+
+  const toggleAllDone = (keys: string[], done: boolean) =>
+    setDoneIngredients(prev => { const n = new Set(prev); keys.forEach(k => done ? n.add(k) : n.delete(k)); return n; });
+
+  const removeIngredient = (key: string) => {
+    setRemovedIngredients(prev => { const n = new Set(prev); n.add(key); return n; });
+    setDoneIngredients(prev => { const n = new Set(prev); n.delete(key); return n; });
+  };
+
+  const clearRecipeIngredients = (id: number) => {
+    const shouldRemove = (k: string) => k.startsWith(`m-${id}-`) || k.startsWith(`g-${id}-`);
+    setDoneIngredients(prev => new Set([...prev].filter(k => !shouldRemove(k))));
+    setRemovedIngredients(prev => new Set([...prev].filter(k => !shouldRemove(k))));
+  };
+
+  const removeRecipeFromList = (id: number) => {
+    toggleRecipeInList(id);
+    clearRecipeIngredients(id);
+  };
+
+  const markCooked = (id: number) => {
+    removeRecipeFromList(id);
+    setCookedIds(prev => { const n = new Set(prev); n.add(id); return n; });
+    setView({ type: "home" });
+  };
 
   const handleTabChange = (t: string) => { setActiveTab(t); setView({ type: "home" }); };
   const handleLogin     = () => setAuthScreen(null);
@@ -1486,9 +1939,9 @@ export default function App() {
         </div>
 
         {/* Tab content */}
-        {activeTab === "menu"   && <HomeScreen onOpenWeek={(w) => setView({ type: "week-detail", week: w })} onRecipeDetail={(r) => setView({ type: "recipe-detail", recipe: r })} />}
+        {activeTab === "menu"   && <HomeScreen onOpenWeek={(w) => setView({ type: "week-detail", week: w })} onRecipeDetail={(r) => setView({ type: "recipe-detail", recipe: r })} selectedCount={selectedRecipeIds.size} onMisRecetas={() => setShowMisRecetas(true)} />}
         {activeTab === "ebooks" && <EbooksScreen />}
-        {activeTab === "lista"  && <ShoppingListTab selectedRecipes={selectedRecipes} onGoToMenu={() => handleTabChange("menu")} />}
+        {activeTab === "lista"  && <ShoppingListTab selectedRecipes={selectedRecipes} doneIngredients={doneIngredients} removedIngredients={removedIngredients} onToggleDone={toggleDone} onToggleAllDone={toggleAllDone} onRemoveIngredient={removeIngredient} onRemoveRecipe={removeRecipeFromList} onGoToMenu={() => handleTabChange("menu")} onRecipeDetail={(r) => setView({ type: "recipe-detail", recipe: r })} />}
 
         <BottomNav activeTab={activeTab} onTabChange={handleTabChange} />
 
@@ -1508,10 +1961,20 @@ export default function App() {
             isInList={selectedRecipeIds.has(view.recipe.id)}
             onToggleList={() => toggleRecipeInList(view.recipe.id)}
             onViewShoppingList={() => { setView({ type: "home" }); setActiveTab("lista"); }}
+            onMarkCooked={() => markCooked(view.recipe.id)}
           />
         )}
         {showProfile && <ProfileScreen onClose={() => setShowProfile(false)} />}
-
+        {showMisRecetas && (
+          <MisRecetasScreen
+            selectedRecipes={selectedRecipes}
+            doneIngredients={doneIngredients}
+            removedIngredients={removedIngredients}
+            onClose={() => setShowMisRecetas(false)}
+            onRecipeDetail={(r) => { setShowMisRecetas(false); setView({ type: "recipe-detail", recipe: r }); }}
+            onMarkCooked={markCooked}
+          />
+        )}
         {/* Auth overlays — appear on top of everything */}
         {authScreen === "login" && (
           <LoginScreen onLogin={handleLogin} />
