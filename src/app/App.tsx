@@ -989,22 +989,22 @@ function MisRecetasScreen({ selectedRecipes, doneIngredients, removedIngredients
               const doneCount = active.filter(fi => doneIngredients.has(fi.key)).length;
               return (
                 <div key={recipe.id} className="bg-white rounded-2xl shadow-sm overflow-hidden">
-                  <button onClick={() => onRecipeDetail(recipe)} className="w-full flex items-center gap-3 px-4 py-3 active:bg-gray-50 transition-colors text-left">
-                    <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0">
+                  <div className="flex items-center gap-3 px-4 py-3">
+                    <button onClick={() => onRecipeDetail(recipe)} className="w-12 h-12 rounded-xl overflow-hidden shrink-0 active:scale-95 transition-transform">
                       <ImageWithFallback src={recipe.image} alt={recipe.name} className="w-full h-full object-cover" />
-                    </div>
-                    <div className="flex-1 min-w-0">
+                    </button>
+                    <button onClick={() => onRecipeDetail(recipe)} className="flex-1 min-w-0 text-left active:opacity-70 transition-opacity">
                       <DietBadge diet={recipe.diet} small />
                       <p className="text-sm font-bold text-gray-800 truncate mt-0.5">{recipe.name}</p>
-                    </div>
-                    {/* Status bar indicator */}
+                    </button>
+                    {/* Status indicator */}
                     <div className="flex flex-col items-end gap-1 shrink-0">
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: STATUS_COLOR[status] }} />
                       <span className="text-[10px] text-gray-400">{doneCount}/{active.length}</span>
                     </div>
-                    {/* Mark cooked button */}
+                    {/* Mark cooked */}
                     <button
-                      onClick={e => { e.stopPropagation(); onMarkCooked(recipe.id); }}
+                      onClick={() => onMarkCooked(recipe.id)}
                       className="w-9 h-9 flex items-center justify-center rounded-full ml-1 active:scale-90 transition-transform shrink-0"
                       style={{ backgroundColor: status === "green" ? "#DCFCE7" : "#F3F4F6" }}>
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
@@ -1012,7 +1012,7 @@ function MisRecetasScreen({ selectedRecipes, doneIngredients, removedIngredients
                           fill={status === "green" ? "#5BAF7A" : "#9CA3AF"} />
                       </svg>
                     </button>
-                  </button>
+                  </div>
                   {/* Progress bar */}
                   <div className="h-1 bg-gray-100 mx-4 mb-3 rounded-full overflow-hidden">
                     <div className="h-full rounded-full transition-all duration-500"
