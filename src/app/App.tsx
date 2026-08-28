@@ -1563,13 +1563,88 @@ function EbooksScreen() {
   );
 }
 
+// ─── Subscription Modal ───────────────────────────────────────────────────────
+
+function SubscriptionModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  if (!visible) return null;
+  return (
+    <div className="absolute inset-0 z-[55] flex items-end justify-center p-4"
+      style={{ backgroundColor: "rgba(0,0,0,0.50)", borderRadius: "inherit" }}>
+      <div className="bg-white rounded-3xl p-5 w-full shadow-2xl">
+        <div className="w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-4"
+          style={{ backgroundColor: RED_LIGHT }}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+            <rect x="3" y="11" width="18" height="11" rx="2" stroke={RED} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M7 11V7a5 5 0 0110 0v4" stroke={RED} strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        </div>
+        <h3 className="text-base font-bold text-gray-900 text-center mb-1">Suscripción inactiva</h3>
+        <p className="text-sm text-gray-500 text-center mb-5 leading-relaxed">
+          Este producto no está activo en tu cuenta. Revisá tus suscripciones en nuestro sitio web.
+        </p>
+        <button className="w-full py-3.5 rounded-2xl text-white font-bold text-sm mb-2.5 active:scale-[0.98] transition-transform"
+          style={{ backgroundColor: RED }}>
+          Ir al sitio web
+        </button>
+        <button onClick={onClose}
+          className="w-full py-3 rounded-2xl text-sm font-semibold active:bg-gray-50 transition-colors"
+          style={{ color: "#6B7280" }}>
+          Cancelar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Static Shopping List Mockup (for inactive subscription) ──────────────────
+
+function StaticShoppingListMockup({ onAnyTap }: { onAnyTap: () => void }) {
+  const categories = [
+    { name: "🥩 Proteínas", items: ["Pollo (800 g)", "Carne molida (500 g)", "Huevos (6 un.)"] },
+    { name: "🥦 Verduras", items: ["Zapallo (½ unidad)", "Espinaca (1 atado)", "Tomate (3 un.)", "Cebolla (2 un.)"] },
+    { name: "🧀 Lácteos", items: ["Queso rallado (100 g)", "Crema (200 ml)"] },
+    { name: "🥫 Almacén", items: ["Arroz (1 taza)", "Lentejas (200 g)", "Fideos (500 g)"] },
+  ];
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden relative">
+      {/* Sub-tab bar (static) */}
+      <div className="shrink-0 flex items-center justify-between px-4 pt-3 pb-2">
+        <div className="flex bg-gray-100 rounded-full p-0.5">
+          <span className="px-4 py-1.5 rounded-full text-xs font-semibold text-white" style={{ backgroundColor: "#2D6A4F" }}>Por categoría</span>
+          <span className="px-4 py-1.5 rounded-full text-xs font-semibold text-gray-500">Por receta</span>
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto px-4 pb-6 pt-1" style={{ scrollbarWidth: "none" }}>
+        {categories.map(cat => (
+          <div key={cat.name} className="bg-white rounded-2xl mb-3 overflow-hidden shadow-sm">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-50">
+              <span className="text-sm font-bold text-gray-800">{cat.name}</span>
+              <span className="text-xs text-gray-400">{cat.items.length} items</span>
+            </div>
+            {cat.items.map(item => (
+              <div key={item} className="flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0">
+                <div className="w-5 h-5 rounded border-2 border-gray-200 shrink-0" />
+                <span className="text-sm text-gray-600">{item}</span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+      {/* Transparent tap interceptor */}
+      <div className="absolute inset-0" onClick={onAnyTap} />
+    </div>
+  );
+}
+
 // ─── Profile Screen ───────────────────────────────────────────────────────────
 
 type ToggleKey = "recordatorios" | "novedades";
 
 type RedirectModal = { visible: boolean; label: string };
 
-function ProfileScreen({ onClose }: { onClose: () => void }) {
+function ProfileScreen({ onClose, menuActive, onToggleMenuActive }: {
+  onClose: () => void; menuActive: boolean; onToggleMenuActive: () => void;
+}) {
   const [toggles, setToggles]           = useState<Record<ToggleKey, boolean>>({ recordatorios: true, novedades: false });
   const [redirectModal, setRedirectModal] = useState<RedirectModal>({ visible: false, label: "" });
 
@@ -1649,6 +1724,25 @@ function ProfileScreen({ onClose }: { onClose: () => void }) {
         </Section>
 
         <Section title="Menú semanal">
+          {/* Subscription active toggle — demo mode */}
+          <div className="w-full flex items-center gap-3 px-4 py-3.5 border-b border-gray-50">
+            <span className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-gray-100">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <rect x="3" y="11" width="18" height="11" rx="2" stroke="#6B7FD4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M7 11V7a5 5 0 0110 0v4" stroke="#6B7FD4" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            </span>
+            <div className="flex-1 min-w-0">
+              <span className="text-sm font-medium text-gray-800 block">Suscripción activa</span>
+              <span className="text-[11px] text-gray-400">Demo: activar/desactivar</span>
+            </div>
+            <button onClick={onToggleMenuActive}
+              className="relative w-11 h-6 rounded-full transition-colors shrink-0"
+              style={{ backgroundColor: menuActive ? "#2D6A4F" : "#D1D5DB" }}>
+              <span className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all"
+                style={{ left: menuActive ? "calc(100% - 22px)" : "2px" }} />
+            </button>
+          </div>
           <Row
             icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" stroke="#6B7FD4" strokeWidth="2" strokeLinecap="round" /><circle cx="9" cy="7" r="4" stroke="#6B7FD4" strokeWidth="2" /><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" stroke="#6B7FD4" strokeWidth="2" strokeLinecap="round" /></svg>}
             label="Comensales por defecto" value="4 personas" onPress={() => {}}
@@ -1698,9 +1792,9 @@ function ProfileScreen({ onClose }: { onClose: () => void }) {
                 <line x1="10" y1="14" x2="21" y2="3" stroke={RED} strokeWidth="2" strokeLinecap="round" />
               </svg>
             </div>
-            <h3 className="text-base font-bold text-gray-900 text-center mb-1">Redirigir al sitio web</h3>
+            <h3 className="text-base font-bold text-gray-900 text-center mb-1">Sitio web</h3>
             <p className="text-sm text-gray-500 text-center mb-5 leading-relaxed">
-              Para modificar <span className="font-semibold text-gray-700">{redirectModal.label}</span>, serás redirigido a nuestro sitio web.
+              Por motivos de seguridad nuestra app no maneja datos personales. Por favor diríjase al sitio web.
             </p>
             <button
               className="w-full py-3.5 rounded-2xl text-white font-bold text-sm mb-2.5 active:scale-[0.98] transition-transform"
@@ -1840,6 +1934,8 @@ export default function App() {
   const [removedIngredients, setRemovedIngredients] = useState<Set<string>>(new Set());
   const [cookedRecipeIds, setCookedIds]             = useState<Set<number>>(new Set());
   const [showMisRecetas, setShowMisRecetas]         = useState(false);
+  const [menuActive, setMenuActive]                 = useState(true);
+  const [showSubModal, setShowSubModal]             = useState(false);
 
   const toggleRecipeInList = (id: number) =>
     setSelectedIds((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -1908,9 +2004,20 @@ export default function App() {
         </div>
 
         {/* Tab content */}
-        {activeTab === "menu"   && <HomeScreen onOpenWeek={(w) => setView({ type: "week-detail", week: w })} onRecipeDetail={(r) => setView({ type: "recipe-detail", recipe: r })} selectedCount={selectedRecipeIds.size} onMisRecetas={() => setShowMisRecetas(true)} />}
+        {activeTab === "menu" && (
+          <div className="flex-1 overflow-hidden flex flex-col relative">
+            <HomeScreen onOpenWeek={(w) => setView({ type: "week-detail", week: w })} onRecipeDetail={(r) => setView({ type: "recipe-detail", recipe: r })} selectedCount={selectedRecipeIds.size} onMisRecetas={() => setShowMisRecetas(true)} />
+            {!menuActive && (
+              <div className="absolute inset-0" onClick={() => setShowSubModal(true)} />
+            )}
+          </div>
+        )}
         {activeTab === "ebooks" && <EbooksScreen />}
-        {activeTab === "lista"  && <ShoppingListTab selectedRecipes={selectedRecipes} doneIngredients={doneIngredients} removedIngredients={removedIngredients} onToggleDone={toggleDone} onToggleAllDone={toggleAllDone} onRemoveIngredient={removeIngredient} onRemoveRecipe={removeRecipeFromList} onGoToMenu={() => handleTabChange("menu")} onRecipeDetail={(r) => setView({ type: "recipe-detail", recipe: r })} onMisRecetas={() => setShowMisRecetas(true)} />}
+        {activeTab === "lista" && (
+          menuActive
+            ? <ShoppingListTab selectedRecipes={selectedRecipes} doneIngredients={doneIngredients} removedIngredients={removedIngredients} onToggleDone={toggleDone} onToggleAllDone={toggleAllDone} onRemoveIngredient={removeIngredient} onRemoveRecipe={removeRecipeFromList} onGoToMenu={() => handleTabChange("menu")} onRecipeDetail={(r) => setView({ type: "recipe-detail", recipe: r })} onMisRecetas={() => setShowMisRecetas(true)} />
+            : <StaticShoppingListMockup onAnyTap={() => setShowSubModal(true)} />
+        )}
 
         <BottomNav activeTab={activeTab} onTabChange={handleTabChange} />
 
@@ -1933,7 +2040,11 @@ export default function App() {
             onMarkCooked={() => markCooked(view.recipe.id)}
           />
         )}
-        {showProfile && <ProfileScreen onClose={() => setShowProfile(false)} />}
+        {/* Subscription modal for lista tab inactive state */}
+        {!menuActive && showSubModal && (
+          <SubscriptionModal visible={true} onClose={() => setShowSubModal(false)} />
+        )}
+        {showProfile && <ProfileScreen onClose={() => setShowProfile(false)} menuActive={menuActive} onToggleMenuActive={() => setMenuActive(p => !p)} />}
         {showMisRecetas && (
           <MisRecetasScreen
             selectedRecipes={selectedRecipes}
