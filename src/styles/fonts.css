@@ -1,0 +1,24 @@
+/* ============================================================================
+   Familias tipográficas — Paulina App
+   Manual: guidelines/brand-manual/03-tipografia.md
+   Montserrat  -> Display, H1–H3, Button   (pesos 600 / 700 / 800)
+   Inter       -> Body, Caption, labels, datos   (pesos 400 / 500 / 600)
+
+   PRODUCCIÓN: reemplazar este @import por archivos .woff2 self-hosteados
+   (solo los pesos usados) con @font-face y font-display: swap.
+   ============================================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Montserrat:wght@600;700;800&display=swap');
+
+:root {
+  --font-heading: "Montserrat", "Segoe UI", Roboto, system-ui, sans-serif;
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+body {
+  font-family: var(--font-body);
+}
+
+h1, h2, h3, h4, .font-heading {
+  font-family: var(--font-heading);
+}
